@@ -8,7 +8,7 @@
 Schema changes; the API contract does not. All existing tests must pass without edits, which is the proof that nobody's access changed.
 - **Files:** `backend/app/models.py` (`Role` StrEnum; `User.role` with server default and CHECK built from the enum; `is_superuser` leaves the table), `backend/app/alembic/versions/<rev>_add_user_role_drop_is_superuser.py` (`down_revision = fe56fa70289e`, order and downgrade per D2, literal role strings because migrations are frozen snapshots), `backend/app/crud.py`, `backend/app/core/db.py`.
 - **Temporary shim, fully removed in step 2:** API schemas keep `is_superuser`, so the OpenAPI schema and generated client are unchanged. Read: derived from `role`. Write: one trivial mapping in `crud.py` used by both create and update (`true` to `ADMIN`, `false` to `MEMBER`, unset on update leaves the role alone). No test is written for the shim itself.
-- **Tests:** `backend/tests/migrations/test_role_migration.py`. It creates a throwaway database (dropped in fixture teardown even on failure), migrates to `fe56fa70289e`, inserts an active superuser, an inactive superuser and a normal user, upgrades and asserts `admin`, `admin`, `member` with `is_active` unchanged. It then sets one user to `manager`, downgrades and asserts `is_superuser` is true only for admins.
+- **Tests:** `backend/tests/migrations/test_role_migration.py`, four tests that run the Alembic CLI against a throwaway database (dropped in teardown even on failure): superusers map to `admin` and others to `member` with `is_active` unchanged; an insert without a role gets `member`; an unknown role is rejected; downgrade restores `is_superuser` only for admins.
 - **Done:** migration test passes; 58 backend and 62 Playwright tests pass unchanged; `generate-client.sh` produces no diff; `alembic upgrade head` then `downgrade -1` then `upgrade head` works on the local populated database.
 
 ## Step 2: Backend authorization and API contract — `feat/rbac-backend-authz`
@@ -25,7 +25,7 @@ Schema changes; the API contract does not. All existing tests must pass without 
 
 ## Step 4: Demo users and instructions — `feat/rbac-demo-users`
 - **Files:** `backend/app/seed_demo_users.py` (new, per D11), `development.md` (the seed command and the three logins).
-- **Tests:** none added. `initial_data.py` is counted by coverage, not excluded, so this script will be too; if the total drops below 90%, stop and ask.
+- **Tests:** `backend/tests/scripts/test_seed_demo_users.py`, one test that pins the development-only guard.
 - **Done:** from a fresh database, the documented commands give three working logins through both `uv run python app/seed_demo_users.py` and `docker compose exec backend python app/seed_demo_users.py`; a second run changes nothing; the script refuses to run without `FASTAPI_ENV=development`; final check of all three roles in Chrome.
 
 ## Then
