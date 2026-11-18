@@ -1,30 +1,22 @@
 import uuid
 from datetime import UTC, datetime
-from enum import StrEnum
 
 from pydantic import EmailStr
 from sqlalchemy import Column, Enum
 from sqlmodel import Field, Relationship, SQLModel
+
+from app.core.permissions import Permission, Role
 
 
 def get_datetime_utc() -> datetime:
     return datetime.now(UTC)
 
 
-class Role(StrEnum):
-    ADMIN = "admin"
-    MANAGER = "manager"
-    MEMBER = "member"
-
-
 # Shared properties
-# TEMPORARY (removed in plan step 2): the API still speaks is_superuser, which
-# is no longer a column. It is derived from the role on read, see
-# User.is_superuser, and mapped to a role on write, see crud.role_from_is_superuser.
 class UserBase(SQLModel):
     email: EmailStr = Field(unique=True, index=True, max_length=255)
     is_active: bool = True
-    is_superuser: bool = False
+    role: Role = Role.MEMBER
     full_name: str | None = Field(default=None, max_length=255)
 
 
@@ -43,7 +35,7 @@ class UserRegister(SQLModel):
 class UserUpdate(SQLModel):
     email: EmailStr | None = Field(default=None, max_length=255)
     is_active: bool | None = None
-    is_superuser: bool | None = None
+    role: Role | None = None
     full_name: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, min_length=8, max_length=128)
 
@@ -59,13 +51,8 @@ class UpdatePassword(SQLModel):
 
 
 # Database model, database table inferred from class name
-# TEMPORARY (until plan step 2): declares the shared columns itself instead of
-# inheriting UserBase, because UserBase still carries is_superuser for the API.
-class User(SQLModel, table=True):
+class User(UserBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    email: EmailStr = Field(unique=True, index=True, max_length=255)
-    is_active: bool = True
-    full_name: str | None = Field(default=None, max_length=255)
     hashed_password: str
     created_at: datetime | None = Field(default_factory=get_datetime_utc)
     # Stored as varchar with a CHECK constraint, not as a native Postgres enum.
@@ -87,16 +74,17 @@ class User(SQLModel, table=True):
     )
     items: list[Item] = Relationship(back_populates="owner", cascade_delete=True)
 
-    # TEMPORARY (removed in plan step 2): read side of the is_superuser shim
-    @property
-    def is_superuser(self) -> bool:
-        return self.role == Role.ADMIN
-
 
 # Properties to return via API, id is always required
 class UserPublic(UserBase):
     id: uuid.UUID
+    role: Role
     created_at: datetime | None = None
+
+
+# The current user, with what they are allowed to do
+class UserMePublic(UserPublic):
+    permissions: list[Permission]
 
 
 class UsersPublic(SQLModel):
@@ -141,6 +129,12 @@ class ItemPublic(ItemBase):
 class ItemsPublic(SQLModel):
     data: list[ItemPublic]
     count: int
+
+
+class MetricsPublic(SQLModel):
+    total_users: int
+    active_users: int
+    total_items: int
 
 
 # Generic message
