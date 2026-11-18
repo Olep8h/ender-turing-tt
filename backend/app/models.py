@@ -1,7 +1,9 @@
 import uuid
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from pydantic import EmailStr
+from sqlalchemy import Column, Enum
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -9,7 +11,16 @@ def get_datetime_utc() -> datetime:
     return datetime.now(UTC)
 
 
+class Role(StrEnum):
+    ADMIN = "admin"
+    MANAGER = "manager"
+    MEMBER = "member"
+
+
 # Shared properties
+# TEMPORARY (removed in plan step 2): the API still speaks is_superuser, which
+# is no longer a column. It is derived from the role on read, see
+# User.is_superuser, and mapped to a role on write, see crud.role_from_is_superuser.
 class UserBase(SQLModel):
     email: EmailStr = Field(unique=True, index=True, max_length=255)
     is_active: bool = True
@@ -48,11 +59,38 @@ class UpdatePassword(SQLModel):
 
 
 # Database model, database table inferred from class name
-class User(UserBase, table=True):
+# TEMPORARY (until plan step 2): declares the shared columns itself instead of
+# inheriting UserBase, because UserBase still carries is_superuser for the API.
+class User(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    email: EmailStr = Field(unique=True, index=True, max_length=255)
+    is_active: bool = True
+    full_name: str | None = Field(default=None, max_length=255)
     hashed_password: str
     created_at: datetime | None = Field(default_factory=get_datetime_utc)
+    # Stored as varchar with a CHECK constraint, not as a native Postgres enum.
+    # The server default gives any insert that sets no role the lowest privilege.
+    role: Role = Field(
+        default=Role.MEMBER,
+        sa_column=Column(
+            Enum(
+                Role,
+                name="ck_user_role",
+                native_enum=False,
+                create_constraint=True,
+                length=32,
+                values_callable=lambda roles: [role.value for role in roles],
+            ),
+            nullable=False,
+            server_default=Role.MEMBER.value,
+        ),
+    )
     items: list[Item] = Relationship(back_populates="owner", cascade_delete=True)
+
+    # TEMPORARY (removed in plan step 2): read side of the is_superuser shim
+    @property
+    def is_superuser(self) -> bool:
+        return self.role == Role.ADMIN
 
 
 # Properties to return via API, id is always required
