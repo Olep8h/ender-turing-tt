@@ -77,6 +77,30 @@ Stop a locally running FastAPI server before starting the Compose backend becaus
 
 **Note**: The first time you start the stack, it might take a minute for all the services to be ready. To monitor it, use `docker compose logs`, or `docker compose logs backend` for the backend service.
 
+## Users for the Three Access Levels
+
+`scripts/prestart.sh` creates the admin from `FIRST_SUPERUSER`. To also get a manager and a member, run the seed script after it. From the `backend` directory:
+
+```bash
+uv run python app/seed_demo_users.py
+```
+
+Or, with the Docker Compose stack running:
+
+```bash
+docker compose exec backend python app/seed_demo_users.py
+```
+
+| Access level | Email |
+| --- | --- |
+| Admin | `FIRST_SUPERUSER` (`admin@example.com` by default) |
+| Manager | `manager@example.com` |
+| Member | `member@example.com` |
+
+Accounts created by `scripts/prestart.sh` or by the seed script use the password from `FIRST_SUPERUSER_PASSWORD` in `.env`. The script only runs with `FASTAPI_ENV=development` and leaves accounts that already exist unchanged, including their password.
+
+The backend test suite deletes all users when it finishes, so run `scripts/prestart.sh` and the seed script again afterwards.
+
 ## Mailpit
 
 [Mailpit](https://mailpit.axllent.org) captures emails sent during local development instead of delivering them. The local backend connects to it at `localhost:1025`, and the Compose backend connects to the `mailpit` service. Captured emails are available at <http://localhost:8025>.
