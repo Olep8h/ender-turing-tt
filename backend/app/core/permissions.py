@@ -22,6 +22,9 @@ class Role(StrEnum):
 
 class Permission(StrEnum):
     USERS_READ = "users:read"
+    # Create, update and delete users, including their role and active status.
+    # Also guards the admin utilities that can take over an account or send
+    # mail: the password recovery email preview and the test email.
     USERS_MANAGE = "users:manage"
     METRICS_READ = "metrics:read"
     ITEMS_MANAGE_ANY = "items:manage_any"
@@ -58,16 +61,15 @@ def can_delete_own_account(user: User) -> bool:
     return user.role != Role.ADMIN
 
 
-def is_active_admin(user: User) -> bool:
-    return user.is_active and user.role == Role.ADMIN
-
-
-def stops_being_active_admin(
-    user: User, *, new_role: Role | None, new_is_active: bool | None
+def may_remove_active_admin(
+    *, new_role: Role | None, new_is_active: bool | None
 ) -> bool:
-    """Whether an update ends the user's time as an active admin. None means unchanged."""
-    if not is_active_admin(user):
-        return False
+    """
+    Whether an update could end someone's time as an active admin.
+
+    It looks only at the requested change (None means unchanged), not at the
+    user's current state, so it can be asked before any row is locked.
+    """
     return new_role not in (None, Role.ADMIN) or new_is_active is False
 
 
@@ -84,6 +86,8 @@ def ensure_active_admin_remains(
     `leaving` is a user who is about to be demoted, deactivated or deleted.
     `active_admins` must be read and locked in the same transaction as the
     change, so that concurrent requests cannot each remove a different admin.
+    It is the only source of truth here: whether `leaving` is an active admin
+    is decided by its presence in that locked list, not by its own attributes.
     """
-    if all(admin.id == leaving.id for admin in active_admins):
+    if [admin.id for admin in active_admins] == [leaving.id]:
         raise LastAdminError

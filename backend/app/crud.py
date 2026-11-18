@@ -44,13 +44,15 @@ def get_active_admins_for_update(*, session: Session) -> list[User]:
 
     A concurrent request that also wants to remove an admin waits here and then
     sees the committed result. The fixed order keeps two such requests from
-    deadlocking.
+    deadlocking. Users already loaded in this session are refreshed from the
+    locked rows.
     """
     statement = (
         select(User)
         .where(User.role == Role.ADMIN, col(User.is_active))
         .order_by(col(User.id))
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     return list(session.exec(statement).all())
 

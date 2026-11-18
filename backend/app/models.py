@@ -1,7 +1,8 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
-from pydantic import EmailStr
+from pydantic import EmailStr, field_validator
 from sqlalchemy import Column, Enum
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -38,6 +39,14 @@ class UserUpdate(SQLModel):
     role: Role | None = None
     full_name: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @field_validator("role", "is_active")
+    @classmethod
+    def reject_explicit_null(cls, value: Any) -> Any:
+        # Leaving the field out means "unchanged"; null is not a role or a status
+        if value is None:
+            raise ValueError("must not be null")
+        return value
 
 
 class UserUpdateMe(SQLModel):

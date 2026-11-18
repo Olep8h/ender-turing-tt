@@ -32,12 +32,13 @@ from app.utils import generate_new_account_email, send_email
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-def ensure_active_admin_remains(session: Session, leaving: User) -> None:
+def refuse_if_last_active_admin(session: Session, leaving: User) -> None:
     """
-    Refuse with 409 if `leaving` is the last active admin.
+    Refuse with 409 if `leaving` is the only active admin.
 
-    Call it before changing or deleting `leaving`, in the same transaction:
-    the admin rows stay locked until that transaction is committed.
+    Call it before changing or deleting `leaving`, in the same transaction.
+    It locks the active admins first and decides from the locked rows, which
+    stay locked until that transaction is committed.
     """
     active_admins = crud.get_active_admins_for_update(session=session)
     try:
@@ -162,6 +163,7 @@ def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
         raise HTTPException(
             status_code=403, detail="Super users are not allowed to delete themselves"
         )
+    refuse_if_last_active_admin(session, leaving=current_user)
     session.delete(current_user)
     session.commit()
     return Message(message="User deleted successfully")
@@ -231,10 +233,10 @@ def update_user(
                 status_code=409, detail="User with this email already exists"
             )
 
-    if permissions.stops_being_active_admin(
-        db_user, new_role=user_in.role, new_is_active=user_in.is_active
+    if permissions.may_remove_active_admin(
+        new_role=user_in.role, new_is_active=user_in.is_active
     ):
-        ensure_active_admin_remains(session, leaving=db_user)
+        refuse_if_last_active_admin(session, leaving=db_user)
 
     db_user = crud.update_user(session=session, db_user=db_user, user_in=user_in)
     return db_user
@@ -257,8 +259,7 @@ def delete_user(
         raise HTTPException(
             status_code=403, detail="Super users are not allowed to delete themselves"
         )
-    if permissions.is_active_admin(user):
-        ensure_active_admin_remains(session, leaving=user)
+    refuse_if_last_active_admin(session, leaving=user)
     statement = delete(Item).where(col(Item.owner_id) == user_id)
     session.exec(statement)
     session.delete(user)

@@ -10,12 +10,12 @@ from collections.abc import Callable, Generator
 import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
-from sqlmodel import Session, col, select
+from sqlmodel import Session, col, select, update
 
 from app import crud
 from app.core.config import settings
 from app.core.permissions import Role
-from app.models import User, UserCreate
+from app.models import ItemCreate, User, UserCreate
 from tests.utils.item import create_random_item
 from tests.utils.user import create_random_user, create_user_and_log_in
 from tests.utils.utils import random_email, random_lower_string
@@ -86,6 +86,9 @@ REQUESTS: dict[str, Callable[[TestClient, Headers, Session], Response]] = {
         headers=headers,
         json={"title": "Changed"},
     ),
+    "delete another user's item": lambda client, headers, db: client.delete(
+        f"{API}/items/{create_random_item(db).id}", headers=headers
+    ),
 }
 
 # (request, status for admin, status for manager, status for member)
@@ -100,6 +103,7 @@ ACCESS_MATRIX = [
     ("read password recovery email", 404, 403, 403),
     ("read another user's item", 200, 403, 403),
     ("update another user's item", 200, 403, 403),
+    ("delete another user's item", 200, 403, 403),
 ]
 
 
@@ -126,6 +130,34 @@ def test_access_matrix(
     response = REQUESTS[request_name](client, headers_by_role[role], db)
 
     assert response.status_code == expected_status
+
+
+@pytest.mark.parametrize("role", [Role.MANAGER, Role.MEMBER])
+def test_item_list_contains_only_own_items(
+    client: TestClient, db: Session, role: Role
+) -> None:
+    user, headers = create_user_and_log_in(client=client, db=db, role=role)
+    own_item = crud.create_item(
+        session=db, item_in=ItemCreate(title="Mine"), owner_id=user.id
+    )
+    create_random_item(db)
+
+    r = client.get(f"{API}/items/", headers=headers)
+
+    assert r.status_code == 200
+    assert r.json()["count"] == 1
+    assert [item["id"] for item in r.json()["data"]] == [str(own_item.id)]
+
+
+def test_current_user_response_lists_the_permissions_of_the_role(
+    client: TestClient, db: Session
+) -> None:
+    _, headers = create_user_and_log_in(client=client, db=db, role=Role.MANAGER)
+
+    me = client.get(f"{API}/users/me", headers=headers).json()
+
+    assert me["role"] == "manager"
+    assert me["permissions"] == ["metrics:read", "users:read"]
 
 
 # --- Changes reach users who already have a session --------------------------
@@ -282,6 +314,22 @@ def test_non_admin_cannot_promote_another_user(
     assert other_user.role == Role.MEMBER
 
 
+@pytest.mark.parametrize("field", ["role", "is_active"])
+def test_update_with_an_explicit_null_is_rejected(
+    client: TestClient, db: Session, superuser_token_headers: Headers, field: str
+) -> None:
+    user = create_random_user(db)
+
+    r = client.patch(
+        f"{API}/users/{user.id}", headers=superuser_token_headers, json={field: None}
+    )
+
+    assert r.status_code == 422
+    db.refresh(user)
+    assert user.role == Role.MEMBER
+    assert user.is_active is True
+
+
 # --- At least one active admin always remains ---------------------------------
 
 
@@ -295,19 +343,18 @@ def only_active_admin(
     The other admins in the shared test database are deactivated, not demoted,
     so the tests also show that inactive admins do not count.
     """
-    other_admins = db.exec(
-        select(User).where(User.role == Role.ADMIN, col(User.is_active))
+    other_admin_ids = db.exec(
+        select(User.id).where(User.role == Role.ADMIN, col(User.is_active))
     ).all()
-    for admin in other_admins:
-        admin.is_active = False
-    db.add_all(other_admins)
+    is_other_admin = col(User.id).in_(other_admin_ids)
+    db.exec(update(User).where(is_other_admin).values(is_active=False))
     db.commit()
     try:
         yield create_user_and_log_in(client=client, db=db, role=Role.ADMIN)
     finally:
-        for admin in other_admins:
-            admin.is_active = True
-        db.add_all(other_admins)
+        # Restore by id in one statement, whatever state the test left the session in
+        db.rollback()
+        db.exec(update(User).where(is_other_admin).values(is_active=True))
         db.commit()
 
 
