@@ -4,6 +4,7 @@ import type { UserPublic } from "@/client"
 import type { DataTableFeatures } from "@/components/Common/DataTable"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { roleBadgeVariants, roleLabels } from "./roles"
 import { UserActionsMenu } from "./UserActionsMenu"
 
 export type UserTableData = UserPublic & {
@@ -40,11 +41,11 @@ export const columns: ColumnDef<DataTableFeatures, UserTableData>[] = [
     ),
   },
   {
-    accessorKey: "is_superuser",
+    accessorKey: "role",
     header: "Role",
     cell: ({ row }) => (
-      <Badge variant={row.original.is_superuser ? "default" : "secondary"}>
-        {row.original.is_superuser ? "Superuser" : "User"}
+      <Badge variant={roleBadgeVariants[row.original.role]}>
+        {roleLabels[row.original.role]}
       </Badge>
     ),
   },
