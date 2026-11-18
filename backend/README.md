@@ -72,6 +72,8 @@ If you use GitHub Actions, the tests will run automatically.
 
 ### Test a Running Stack
 
+**Note**: on this template the commands below fail, because `backend/tests/` is not copied into the backend image. Use the local command above, `uv run bash scripts/test.sh` from the `backend` directory, against the running database instead.
+
 If your stack is already up and you just want to run the tests, you can use:
 
 ```bash
