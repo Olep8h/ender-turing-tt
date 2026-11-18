@@ -17,7 +17,7 @@ class Role(StrEnum):
     MEMBER = "member"
 
 
-# Shared properties of the API schemas
+# Shared properties
 # TEMPORARY (removed in plan step 2): the API still speaks is_superuser, which
 # is no longer a column. It is derived from the role on read, see
 # User.is_superuser, and mapped to a role on write, see crud.role_from_is_superuser.

@@ -18,6 +18,9 @@ depends_on = None
 
 
 def upgrade():
+    # Deploy order: run this migration, then restart the backend. Code from
+    # before this revision reads is_superuser and cannot run on the new schema.
+
     # Role values are literals on purpose: a migration is a frozen snapshot and
     # must not change when the application's Role enum does.
 
@@ -42,5 +45,7 @@ def downgrade():
         sa.Column('is_superuser', sa.Boolean(), server_default=sa.false(), nullable=False),
     )
     op.execute("UPDATE \"user\" SET is_superuser = true WHERE role = 'admin'")
+    # The default was only needed to backfill; the original column had none.
+    op.alter_column('user', 'is_superuser', server_default=None)
     op.drop_constraint('ck_user_role', 'user', type_='check')
     op.drop_column('user', 'role')

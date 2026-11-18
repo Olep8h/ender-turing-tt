@@ -16,6 +16,8 @@ from app.core.db import engine as app_engine
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 # Last revision in which privilege is still stored in user.is_superuser
 PREVIOUS_REVISION = "fe56fa70289e"
+# The revision under test: adds user.role and drops user.is_superuser
+ROLE_REVISION = "4f7c2d9e8a13"
 
 
 @pytest.fixture
@@ -28,9 +30,9 @@ def scratch_engine() -> Generator[Engine]:
     name = f"migration_test_{uuid.uuid4().hex}"
     url = make_url(str(settings.DATABASE_URL)).set(database=name)
     admin_engine = app_engine.execution_options(isolation_level="AUTOCOMMIT")
+    engine = create_engine(url)
     with admin_engine.connect() as connection:
         connection.execute(text(f'CREATE DATABASE "{name}"'))
-    engine = create_engine(url)
     try:
         yield engine
     finally:
@@ -68,8 +70,12 @@ def downgrade(engine: Engine, revision: str) -> None:
     run_alembic(engine, "downgrade", revision)
 
 
-def user_columns(engine: Engine) -> set[str]:
-    return {column["name"] for column in inspect(engine).get_columns("user")}
+def user_columns(engine: Engine) -> dict[str, str | None]:
+    """Column names of the user table, mapped to their server defaults."""
+    return {
+        column["name"]: column["default"]
+        for column in inspect(engine).get_columns("user")
+    }
 
 
 def insert_user(connection: Connection, **columns: object) -> None:
@@ -105,7 +111,7 @@ def test_upgrade_maps_superusers_to_admin_and_keeps_is_active(
             is_superuser=False,
         )
 
-    upgrade(scratch_engine, "head")
+    upgrade(scratch_engine, ROLE_REVISION)
 
     assert "is_superuser" not in user_columns(scratch_engine)
     with scratch_engine.connect() as connection:
@@ -145,7 +151,7 @@ def test_unknown_role_is_rejected(scratch_engine: Engine) -> None:
 def test_downgrade_restores_is_superuser_only_for_admins(
     scratch_engine: Engine,
 ) -> None:
-    upgrade(scratch_engine, "head")
+    upgrade(scratch_engine, ROLE_REVISION)
     with scratch_engine.begin() as connection:
         insert_user(connection, email="admin@example.com", is_active=True, role="admin")
         insert_user(
@@ -163,7 +169,10 @@ def test_downgrade_restores_is_superuser_only_for_admins(
 
     downgrade(scratch_engine, PREVIOUS_REVISION)
 
-    assert "role" not in user_columns(scratch_engine)
+    columns = user_columns(scratch_engine)
+    assert "role" not in columns
+    # The original column had no server default; the downgrade must not leave one
+    assert columns["is_superuser"] is None
     with scratch_engine.connect() as connection:
         rows = connection.execute(
             text('SELECT email, is_superuser, is_active FROM "user"')
