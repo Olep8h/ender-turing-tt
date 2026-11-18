@@ -4,7 +4,7 @@ import type { UserPublic } from "@/client"
 import type { DataTableFeatures } from "@/components/Common/DataTable"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { roleLabels } from "./roles"
+import { roleBadgeVariants, roleLabels } from "./roles"
 import { UserActionsMenu } from "./UserActionsMenu"
 
 export type UserTableData = UserPublic & {
@@ -44,7 +44,9 @@ export const columns: ColumnDef<DataTableFeatures, UserTableData>[] = [
     accessorKey: "role",
     header: "Role",
     cell: ({ row }) => (
-      <Badge variant="secondary">{roleLabels[row.original.role]}</Badge>
+      <Badge variant={roleBadgeVariants[row.original.role]}>
+        {roleLabels[row.original.role]}
+      </Badge>
     ),
   },
   {

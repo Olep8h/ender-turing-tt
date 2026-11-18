@@ -8,3 +8,10 @@ export const roleLabels: Record<Role, string> = {
 }
 
 export const roles = Object.keys(roleLabels) as Role[]
+
+// As before roles: the most privileged users stand out in the users table
+export const roleBadgeVariants: Record<Role, "default" | "secondary"> = {
+  admin: "default",
+  manager: "secondary",
+  member: "secondary",
+}
