@@ -4,10 +4,10 @@ import { useNavigate } from "@tanstack/react-router"
 import {
   type Body_login_login_access_token as AccessToken,
   LoginService,
-  type UserPublic,
   type UserRegister,
   UsersService,
 } from "@/client"
+import { currentUserQueryOptions } from "@/lib/permissions"
 import { handleError } from "@/utils"
 import useCustomToast from "./useCustomToast"
 
@@ -20,9 +20,8 @@ const useAuth = () => {
   const queryClient = useQueryClient()
   const { showErrorToast } = useCustomToast()
 
-  const { data: user } = useQuery<UserPublic | null, Error>({
-    queryKey: ["currentUser"],
-    queryFn: async () => (await UsersService.readUserMe()).data,
+  const { data: user } = useQuery({
+    ...currentUserQueryOptions,
     enabled: isLoggedIn(),
   })
 
@@ -55,6 +54,8 @@ const useAuth = () => {
 
   const logout = () => {
     localStorage.removeItem("access_token")
+    // Do not let the next user start from this user's cached data and permissions
+    queryClient.clear()
     navigate({ to: "/login" })
   }
 

@@ -1,8 +1,9 @@
 import uuid
 from typing import Any
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
+from app.core.permissions import Role
 from app.core.security import get_password_hash, verify_password
 from app.models import Item, ItemCreate, User, UserCreate, UserUpdate
 
@@ -35,6 +36,25 @@ def get_user_by_email(*, session: Session, email: str) -> User | None:
     statement = select(User).where(User.email == email)
     session_user = session.exec(statement).first()
     return session_user
+
+
+def get_active_admins_for_update(*, session: Session) -> list[User]:
+    """
+    Read the active admins and lock their rows until the transaction ends.
+
+    A concurrent request that also wants to remove an admin waits here and then
+    sees the committed result. The fixed order keeps two such requests from
+    deadlocking. Users already loaded in this session are refreshed from the
+    locked rows.
+    """
+    statement = (
+        select(User)
+        .where(User.role == Role.ADMIN, col(User.is_active))
+        .order_by(col(User.id))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return list(session.exec(statement).all())
 
 
 # Dummy hash to use for timing attack prevention when user is not found

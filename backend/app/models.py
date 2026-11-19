@@ -1,8 +1,12 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
-from pydantic import EmailStr
+from pydantic import EmailStr, field_validator
+from sqlalchemy import Column, Enum
 from sqlmodel import Field, Relationship, SQLModel
+
+from app.core.permissions import Permission, Role
 
 
 def get_datetime_utc() -> datetime:
@@ -13,7 +17,7 @@ def get_datetime_utc() -> datetime:
 class UserBase(SQLModel):
     email: EmailStr = Field(unique=True, index=True, max_length=255)
     is_active: bool = True
-    is_superuser: bool = False
+    role: Role = Role.MEMBER
     full_name: str | None = Field(default=None, max_length=255)
 
 
@@ -32,9 +36,17 @@ class UserRegister(SQLModel):
 class UserUpdate(SQLModel):
     email: EmailStr | None = Field(default=None, max_length=255)
     is_active: bool | None = None
-    is_superuser: bool | None = None
+    role: Role | None = None
     full_name: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @field_validator("role", "is_active")
+    @classmethod
+    def reject_explicit_null(cls, value: Any) -> Any:
+        # Leaving the field out means "unchanged"; null is not a role or a status
+        if value is None:
+            raise ValueError("must not be null")
+        return value
 
 
 class UserUpdateMe(SQLModel):
@@ -52,13 +64,36 @@ class User(UserBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     hashed_password: str
     created_at: datetime | None = Field(default_factory=get_datetime_utc)
+    # Stored as varchar with a CHECK constraint, not as a native Postgres enum.
+    # The server default gives any insert that sets no role the lowest privilege.
+    role: Role = Field(
+        default=Role.MEMBER,
+        sa_column=Column(
+            Enum(
+                Role,
+                name="ck_user_role",
+                native_enum=False,
+                create_constraint=True,
+                length=32,
+                values_callable=lambda roles: [role.value for role in roles],
+            ),
+            nullable=False,
+            server_default=Role.MEMBER.value,
+        ),
+    )
     items: list[Item] = Relationship(back_populates="owner", cascade_delete=True)
 
 
 # Properties to return via API, id is always required
 class UserPublic(UserBase):
     id: uuid.UUID
+    role: Role
     created_at: datetime | None = None
+
+
+# The current user, with what they are allowed to do
+class UserMePublic(UserPublic):
+    permissions: list[Permission]
 
 
 class UsersPublic(SQLModel):
@@ -103,6 +138,12 @@ class ItemPublic(ItemBase):
 class ItemsPublic(SQLModel):
     data: list[ItemPublic]
     count: int
+
+
+class MetricsPublic(SQLModel):
+    total_users: int
+    active_users: int
+    total_items: int
 
 
 # Generic message
