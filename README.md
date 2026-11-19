@@ -1,3 +1,7 @@
+> **Test task submission:** role-aware access control (Admin, Manager, Member) built on top of this template. Decisions, run instructions and tests are in [PR #9](https://github.com/Olep8h/ender-turing-tt/pull/9); the work lives on the `dev` branch.
+>
+> Highlights: one `role` column with a reversible migration, all policy in `backend/app/core/permissions.py`, last-admin protection (409), permission-aware frontend guards. 118 backend tests (93% coverage), 65 Playwright tests.
+
 # Full Stack FastAPI Template
 
 [![Test Docker Compose](../../actions/workflows/test-docker-compose.yml/badge.svg)](../../actions/workflows/test-docker-compose.yml)
